@@ -1,7 +1,7 @@
 # Ambientes virtuales
 venv/
 env/
-.env
+# .env
 .venv
 
 # Archivos de Python
@@ -12,3 +12,4 @@ __pycache__/
 
 # Otros
 .DS_Store
+.vscode/
