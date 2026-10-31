@@ -61,8 +61,20 @@ Para que el script se ejecute diariamente de manera automática:
 3. Navega a **Secrets and variables > Actions**.
 4. Añade los siguientes "Repository secrets" haciendo clic en "New repository secret":
    - `GEMINI_API_KEY`
+   - `GEMINI_MODEL` (opcional; por defecto `gemini-2.5-flash`)
    - `LINKEDIN_ACCESS_TOKEN`
    - `LINKEDIN_ORG_ID`
+   - `LINKEDIN_API_VERSION` (opcional; por defecto `202601`)
+
+   `LINKEDIN_ACCESS_TOKEN` no es una API key: debe ser un access token OAuth
+   de LinkedIn vigente, obtenido autorizando la aplicación con el permiso
+   `w_organization_social`. Además, el usuario que autoriza el token debe tener
+   un rol que permita publicar en la página de empresa. Si LinkedIn responde
+   `401 AUTHENTICATION_FAILED`, hay que generar un token OAuth nuevo; cambiar
+   `LINKEDIN_ORG_ID` no renueva ni valida el token.
+
+   El script usa el endpoint actual `POST /rest/posts`. La API antigua
+   `/v2/ugcPosts` fue reemplazada y requiere una cabecera `LinkedIn-Version`.
 5. El bot se ejecutará automáticamente todos los días a las 09:00 UTC, tal como está definido en `.github/workflows/linkedin_bot.yml` (puedes modificar la expresión cron ahí si lo deseas).
 6. También puedes disparar la ejecución manualmente desde la pestaña **Actions** seleccionando el workflow "LinkedIn RSS Bot" y haciendo clic en "Run workflow".
 # Linkedin-ai-news-publisher
