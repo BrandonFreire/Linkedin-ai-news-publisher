@@ -6,10 +6,10 @@ from dotenv import load_dotenv
 from google import genai
 
 # Cargar variables de entorno desde .env si existe
-load_dotenv()
+load_dotenv(override=True)
 
 GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or "").strip()
-GEMINI_MODEL = (os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash").strip()
+GEMINI_MODEL = (os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash").strip()
 LINKEDIN_ACCESS_TOKEN = (os.environ.get("LINKEDIN_ACCESS_TOKEN") or "").strip()
 LINKEDIN_ORG_ID = (os.environ.get("LINKEDIN_ORG_ID") or "").strip()
 LINKEDIN_API_VERSION = (
@@ -78,7 +78,9 @@ def post_to_linkedin_page(content, news_url):
         return False
 
     try:
-        url = "https://api.linkedin.com/rest/posts"
+        #url = "https://api.linkedin.com/rest/posts"
+        url = "https://api.linkedin.com/v2/ugcPosts"
+
         headers = {
             "Authorization": "Bearer " + LINKEDIN_ACCESS_TOKEN,
             "X-Restli-Protocol-Version": "2.0.0",
@@ -91,15 +93,18 @@ def post_to_linkedin_page(content, news_url):
         
         payload = {
             "author": f"urn:li:organization:{LINKEDIN_ORG_ID}",
-            "commentary": full_content,
-            "visibility": "PUBLIC",
-            "distribution": {
-                "feedDistribution": "MAIN_FEED",
-                "targetEntities": [],
-                "thirdPartyDistributionChannels": []
-            },
             "lifecycleState": "PUBLISHED",
-            "isReshareDisabledByAuthor": False
+            "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {
+                        "text": full_content
+                    },
+                    "shareMediaCategory": "NONE"
+                }
+            },
+            "visibility": {
+            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+            }
         }
         
         response = requests.post(url, headers=headers, json=payload, timeout=30)
