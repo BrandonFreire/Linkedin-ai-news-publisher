@@ -81,6 +81,15 @@ Para que el script se ejecute diariamente de manera automática:
    Telegram se notifica únicamente después de que LinkedIn confirme la
    publicación con HTTP 201. Crea el bot con BotFather, inicia una conversación
    con él y obtén el `chat_id` correcto antes de configurar estos secretos.
+
+   El workflow conserva las URLs publicadas en `data/published_news.json`
+   mediante GitHub Actions Cache. En cada ejecución se restaura el registro,
+   se elige la noticia más reciente que no esté registrada y se guarda el
+   registro actualizado después de publicar correctamente en LinkedIn. No borres
+   las cachés del repositorio si quieres conservar la protección contra
+   duplicados. GitHub puede eliminar cachés antiguas por sus políticas de
+   retención; para una garantía permanente conviene migrar posteriormente este
+   registro a una base de datos o almacenamiento externo.
 5. El bot se ejecutará automáticamente todos los días a las 09:00 UTC, tal como está definido en `.github/workflows/linkedin_bot.yml` (puedes modificar la expresión cron ahí si lo deseas).
 6. También puedes disparar la ejecución manualmente desde la pestaña **Actions** seleccionando el workflow "LinkedIn RSS Bot" y haciendo clic en "Run workflow".
 # Linkedin-ai-news-publisher

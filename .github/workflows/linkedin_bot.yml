@@ -6,6 +6,10 @@ on:
     - cron: '0 9 * * *'
   workflow_dispatch: # Permite ejecución manual desde la interfaz de GitHub
 
+concurrency:
+  group: linkedin-rss-bot
+  cancel-in-progress: false
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -23,6 +27,17 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+
+    - name: Preparar registro de noticias
+      run: mkdir -p data
+
+    - name: Restaurar registro de noticias publicadas
+      uses: actions/cache@v4
+      with:
+        path: data/published_news.json
+        key: published-news-${{ github.ref_name }}-${{ github.run_id }}
+        restore-keys: |
+          published-news-${{ github.ref_name }}-
 
     - name: Ejecutar script bot
       env:

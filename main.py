@@ -1,7 +1,11 @@
 import os
 import re
+import json
+import calendar
 import requests
 import feedparser
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from dotenv import load_dotenv
 from google import genai
 
@@ -15,6 +19,9 @@ LINKEDIN_ORG_ID = (os.environ.get("LINKEDIN_ORG_ID") or "").strip()
 LINKEDIN_API_VERSION = (
     os.environ.get("LINKEDIN_API_VERSION") or "202601"
 ).strip()
+PUBLISHED_NEWS_FILE = Path(
+    os.environ.get("PUBLISHED_NEWS_FILE") or "data/published_news.json"
+)
 
 # URLs de feeds RSS a leer
 '''
@@ -35,22 +42,85 @@ RSS_FEEDS = [
     "https://www.gim-international.com/rss/news"
 ]
 
-def fetch_latest_news():
-    """Extrae la noticia más reciente de una lista de feeds RSS."""
+def normalize_news_url(url):
+    """Normaliza una URL para detectar la misma noticia con tracking distinto."""
+    parsed_url = urlsplit(url.strip())
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed_url.query, keep_blank_values=True)
+        if not key.lower().startswith(("utm_", "fbclid", "gclid"))
+    ]
+    return urlunsplit((
+        parsed_url.scheme.lower(),
+        parsed_url.netloc.lower(),
+        parsed_url.path.rstrip("/") or "/",
+        urlencode(query),
+        "",
+    ))
+
+def load_published_news():
+    """Carga las URLs publicadas; si no existe estado, inicia un registro vacío."""
+    try:
+        if not PUBLISHED_NEWS_FILE.exists():
+            return set()
+        data = json.loads(PUBLISHED_NEWS_FILE.read_text(encoding="utf-8"))
+        urls = data.get("published_urls", [])
+        if not isinstance(urls, list):
+            raise ValueError("published_urls debe ser una lista")
+        return {normalize_news_url(url) for url in urls if isinstance(url, str)}
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        print(f"Error al cargar el registro de noticias publicadas: {e}")
+        return None
+
+def save_published_news(published_urls):
+    """Guarda el registro de forma atómica para no dejar JSON incompleto."""
+    try:
+        PUBLISHED_NEWS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary_file = PUBLISHED_NEWS_FILE.with_suffix(".tmp")
+        payload = {"published_urls": sorted(published_urls)[-500:]}
+        temporary_file.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_file.replace(PUBLISHED_NEWS_FILE)
+    except OSError as e:
+        print(f"Error al guardar el registro de noticias publicadas: {e}")
+        return False
+    return True
+
+def fetch_latest_news(published_urls):
+    """Devuelve la noticia más reciente que todavía no se ha publicado."""
+    candidates = []
     for feed_url in RSS_FEEDS:
         try:
             feed = feedparser.parse(feed_url)
-            if feed.entries:
-                # Tomamos la noticia más reciente (la primera entrada)
-                entry = feed.entries[0]
-                title = entry.title
-                link = entry.link
-                summary = getattr(entry, 'summary', '')
-                return title, link, summary
+            for entry in feed.entries:
+                title = getattr(entry, "title", "").strip()
+                link = getattr(entry, "link", "").strip()
+                if not title or not link:
+                    continue
+                normalized_link = normalize_news_url(link)
+                if normalized_link in published_urls:
+                    continue
+                published_timestamp = getattr(entry, "published_parsed", None)
+                timestamp = (
+                calendar.timegm(published_timestamp)
+                if published_timestamp
+                else 0
+                )
+                candidates.append((
+                    timestamp,
+                    title,
+                    link,
+                    getattr(entry, "summary", ""),
+                ))
         except Exception as e:
             print(f"Error al leer el feed {feed_url}: {e}")
             continue
-    return None, None, None
+    if not candidates:
+        return None, None, None
+    _, title, link, summary = max(candidates, key=lambda candidate: candidate[0])
+    return title, link, summary
 
 def generate_post_with_gemini(title, summary):
     """Genera un post corporativo para LinkedIn usando Gemini 3.5 Flash."""
@@ -149,7 +219,7 @@ def post_to_linkedin_page(content, news_url):
                     "LinkedIn publicó el contenido, pero no devolvió el identificador "
                     "del post; no se podrá enlazar desde Telegram."
                 )
-                return ""
+                return None
 
             linkedin_post_url = f"https://www.linkedin.com/feed/update/{post_id}"
             print(f"URL de la publicación: {linkedin_post_url}")
@@ -177,7 +247,7 @@ def post_to_linkedin_page(content, news_url):
         return None
     except Exception as e:
         print(f"Excepción durante la publicación en LinkedIn: {e}")
-        return False
+        return None
 
 def notify_telegram(news_title: str, linkedin_post_url: str = "", post_content: str=""):
     """Notifica enviada por Telegram después de publicar correctamente en LinkedIn."""
@@ -228,8 +298,12 @@ if __name__ == "__main__":
         print("Error: Faltan variables de entorno necesarias (GEMINI_API_KEY, LINKEDIN_ACCESS_TOKEN, LINKEDIN_ORG_ID).")
         exit(1)
         
-    print("Obteniendo última noticia del feed RSS...")
-    title, link, summary = fetch_latest_news()
+    published_urls = load_published_news()
+    if published_urls is None:
+        exit(1)
+
+    print("Obteniendo la noticia más reciente no publicada del feed RSS...")
+    title, link, summary = fetch_latest_news(published_urls)
     
     if title and link:
         print(f"Noticia encontrada: {title}")
@@ -239,7 +313,11 @@ if __name__ == "__main__":
         if post_content:
             print("Publicando en la página de empresa de LinkedIn...")
             linkedin_post_url = post_to_linkedin_page(post_content, link)
-            if linkedin_post_url is None:
+            if not linkedin_post_url:
+                exit(1)
+
+            published_urls.add(normalize_news_url(link))
+            if not save_published_news(published_urls):
                 exit(1)
             notify_telegram(title, linkedin_post_url=linkedin_post_url, post_content=post_content)
         else:

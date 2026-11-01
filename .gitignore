@@ -29,6 +29,7 @@ dist/
 *.log
 *.tmp
 *.temp
+data/published_news.json
 
 # Sistema operativo y editores
 .DS_Store
