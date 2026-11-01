@@ -179,7 +179,7 @@ def post_to_linkedin_page(content, news_url):
         print(f"Excepción durante la publicación en LinkedIn: {e}")
         return False
 
-def notify_telegram(news_title: str, linkedin_post_url: str = ""):
+def notify_telegram(news_title: str, linkedin_post_url: str = "", post_content: str=""):
     """Notifica enviada por Telegram después de publicar correctamente en LinkedIn."""
     bot_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
@@ -195,6 +195,7 @@ def notify_telegram(news_title: str, linkedin_post_url: str = ""):
         f"🚀 *¡Nuevo post publicado en LinkedIn!*\n\n"
         f"📌 *Noticia:* {news_title}\n"
         f"✅ *Estado:* Publicado exitosamente en la página de empresa."
+        f"\n\n💬 *Contenido del post:*\n{post_content}"
     )
     if linkedin_post_url:
         message += f"\n🔗 [Ver publicación en LinkedIn]({linkedin_post_url})"
@@ -240,7 +241,7 @@ if __name__ == "__main__":
             linkedin_post_url = post_to_linkedin_page(post_content, link)
             if linkedin_post_url is None:
                 exit(1)
-            notify_telegram(title, linkedin_post_url=linkedin_post_url)
+            notify_telegram(title, linkedin_post_url=linkedin_post_url, post_content=post_content)
         else:
             print("No se pudo generar el contenido del post (el resultado de Gemini está vacío).")
             exit(1)
