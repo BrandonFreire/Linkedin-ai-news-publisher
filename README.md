@@ -65,6 +65,8 @@ Para que el script se ejecute diariamente de manera automática:
    - `LINKEDIN_ACCESS_TOKEN`
    - `LINKEDIN_ORG_ID`
    - `LINKEDIN_API_VERSION` (opcional; por defecto `202601`)
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
 
    `LINKEDIN_ACCESS_TOKEN` no es una API key: debe ser un access token OAuth
    de LinkedIn vigente, obtenido autorizando la aplicación con el permiso
@@ -75,6 +77,10 @@ Para que el script se ejecute diariamente de manera automática:
 
    El script usa el endpoint actual `POST /rest/posts`. La API antigua
    `/v2/ugcPosts` fue reemplazada y requiere una cabecera `LinkedIn-Version`.
+
+   Telegram se notifica únicamente después de que LinkedIn confirme la
+   publicación con HTTP 201. Crea el bot con BotFather, inicia una conversación
+   con él y obtén el `chat_id` correcto antes de configurar estos secretos.
 5. El bot se ejecutará automáticamente todos los días a las 09:00 UTC, tal como está definido en `.github/workflows/linkedin_bot.yml` (puedes modificar la expresión cron ahí si lo deseas).
 6. También puedes disparar la ejecución manualmente desde la pestaña **Actions** seleccionando el workflow "LinkedIn RSS Bot" y haciendo clic en "Run workflow".
 # Linkedin-ai-news-publisher
