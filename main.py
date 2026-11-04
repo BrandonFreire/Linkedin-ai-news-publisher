@@ -153,7 +153,10 @@ def generate_post_with_gemini(title, summary):
                 1. Gancho inicial: Menciona un dato o reflexión destacada de la noticia en 1-2 oraciones.
                 2. Puente con SOINNTECH: Explica brevemente cómo la teledetección satelital, la IA o la digitalización de infraestructuras de SOINNTECH abordan este tipo de retos técnicos.
                 3. Llamado a la acción (CTA): Invita a reflexionar o visitar https://soinntech.com para conocer más sobre nuestras soluciones.
-                4. Cierre con 3 a 5 hashtags relevantes e interesantes (ej. #AguaPotable #Teledetección #IA #Infraestructura #SOINNTECH).
+                4. Cierre con 3 a 5 hashtags relevantes e interesantes que vayan acorde a la tematica de la empresa SOINNTECH y al post publicado (ej. #AguaPotable #Teledetección #IA #Infraestructura #SOINNTECH). Asi mismo agrega hashtags de tendencia en el sector de teledetección, geofonamiento y catastro de redes de agua potable.
+
+                FORMATO DE LA NOTICIA:
+                - Devuelve el texto sin formato y sin etiquetas HTML.
 
                 DATOS DE LA NOTICIA:
                 Título: {title}
