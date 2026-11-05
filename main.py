@@ -5,7 +5,8 @@ import calendar
 import requests
 import feedparser
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from html.parser import HTMLParser
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 from dotenv import load_dotenv
 from google import genai
 
@@ -41,6 +42,63 @@ RSS_FEEDS = [
     "https://earthobservatory.nasa.gov/feeder/blogs.xml",
     "https://www.gim-international.com/rss/news"
 ]
+
+class _ImageMetaParser(HTMLParser):
+    """Extrae imágenes declaradas en metadatos de una página de noticia."""
+
+    def __init__(self):
+        super().__init__()
+        self.image_url = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "meta" or self.image_url:
+            return
+        attributes = {key.lower(): value for key, value in attrs}
+        property_name = (attributes.get("property") or "").lower()
+        name = (attributes.get("name") or "").lower()
+        if property_name in ("og:image", "og:image:url") or name == "twitter:image":
+            image_url = (attributes.get("content") or "").strip()
+            if image_url:
+                self.image_url = image_url
+
+def _extract_rss_image(entry):
+    """Devuelve la primera imagen declarada por una entrada RSS."""
+    for field in ("media_content", "media_thumbnail"):
+        for media in getattr(entry, field, []) or []:
+            image_url = (media.get("url") or "").strip()
+            if image_url:
+                return image_url
+
+    for enclosure in getattr(entry, "enclosures", []) or []:
+        image_url = enclosure.get("href") or enclosure.get("url") or ""
+        if image_url.strip() and (
+            (enclosure.get("type") or "").lower().startswith("image/")
+            or not enclosure.get("type")
+        ):
+            return image_url.strip()
+    return None
+
+def _fetch_page_image(news_url):
+    """Busca og:image/twitter:image cuando el feed no incluye imagen."""
+    try:
+        response = requests.get(
+            news_url,
+            headers={"User-Agent": "LinkedIn-RSS-Bot/1.0"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        parser = _ImageMetaParser()
+        parser.feed(response.text)
+        if parser.image_url:
+            return urljoin(news_url, parser.image_url)
+    except (requests.RequestException, UnicodeDecodeError) as e:
+        print(f"No se pudo obtener la imagen original de {news_url}: {e}")
+    return None
+
+def get_news_image_url(entry, news_url):
+    """Obtiene la imagen del RSS o, como respaldo, de la página de la noticia."""
+    image_url = _extract_rss_image(entry)
+    return image_url or _fetch_page_image(news_url)
 
 def normalize_news_url(url):
     """Normaliza una URL para detectar la misma noticia con tracking distinto."""
@@ -113,14 +171,15 @@ def fetch_latest_news(published_urls):
                     title,
                     link,
                     getattr(entry, "summary", ""),
+                    entry,
                 ))
         except Exception as e:
             print(f"Error al leer el feed {feed_url}: {e}")
             continue
     if not candidates:
-        return None, None, None
-    _, title, link, summary = max(candidates, key=lambda candidate: candidate[0])
-    return title, link, summary
+        return None, None, None, None
+    _, title, link, summary, entry = max(candidates, key=lambda candidate: candidate[0])
+    return title, link, summary, get_news_image_url(entry, link)
 
 def generate_post_with_gemini(title, summary):
     """Genera un post corporativo para LinkedIn usando Gemini 3.5 Flash."""
@@ -172,7 +231,71 @@ def generate_post_with_gemini(title, summary):
         print(f"Error al generar contenido con Gemini: {e}")
         return None
 
-def post_to_linkedin_page(content, news_url):
+def upload_image_to_linkedin(image_url):
+    """Descarga una imagen y la registra en LinkedIn para usarla en un post."""
+    register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+    headers = {
+        "Authorization": "Bearer " + LINKEDIN_ACCESS_TOKEN,
+        "X-Restli-Protocol-Version": "2.0.0",
+        "LinkedIn-Version": LINKEDIN_API_VERSION,
+        "Content-Type": "application/json",
+    }
+    owner = f"urn:li:organization:{LINKEDIN_ORG_ID}"
+
+    try:
+        image_response = requests.get(
+            image_url,
+            headers={"User-Agent": "LinkedIn-RSS-Bot/1.0"},
+            timeout=20,
+        )
+        image_response.raise_for_status()
+        content_type = image_response.headers.get("Content-Type", "").split(";")[0].lower()
+        if not content_type.startswith("image/"):
+            print(f"La URL no devolvió una imagen ({content_type or 'tipo desconocido'}).")
+            return None
+
+        register_payload = {
+            "registerUploadRequest": {
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                "owner": owner,
+                "serviceRelationships": [{
+                    "relationshipType": "OWNER",
+                    "identifier": "urn:li:userGeneratedContent",
+                }],
+            }
+        }
+        register_response = requests.post(
+            register_url,
+            headers=headers,
+            json=register_payload,
+            timeout=30,
+        )
+        register_response.raise_for_status()
+        register_data = register_response.json().get("value", {})
+        asset = register_data.get("asset")
+        upload_mechanism = register_data.get("uploadMechanism", {})
+        upload_data = upload_mechanism.get(
+            "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest",
+            {},
+        )
+        upload_url = upload_data.get("uploadUrl")
+        if not asset or not upload_url:
+            print("LinkedIn no devolvió los datos necesarios para subir la imagen.")
+            return None
+
+        upload_response = requests.put(
+            upload_url,
+            headers={"Content-Type": content_type},
+            data=image_response.content,
+            timeout=30,
+        )
+        upload_response.raise_for_status()
+        return asset
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"No se pudo subir la imagen a LinkedIn: {e}")
+        return None
+
+def post_to_linkedin_page(content, news_url, image_url=None):
     """Publica en LinkedIn y devuelve la URL del post creado."""
     if not re.fullmatch(r"\d+", LINKEDIN_ORG_ID):
         print("Error: LINKEDIN_ORG_ID debe contener únicamente el ID numérico de la organización.")
@@ -196,16 +319,26 @@ def post_to_linkedin_page(content, news_url):
         # Agregamos la URL al final del texto generado
         full_content = f"{content}\n\nFuente: {news_url}"
         
+        image_asset = upload_image_to_linkedin(image_url) if image_url else None
+        share_media_category = "IMAGE" if image_asset else "NONE"
+        share_content = {
+            "shareCommentary": {
+                "text": full_content
+            },
+            "shareMediaCategory": share_media_category,
+        }
+        if image_asset:
+            share_content["media"] = [{
+                "status": "READY",
+                "media": image_asset,
+                "title": {"text": "Imagen original de la noticia"},
+            }]
+
         payload = {
             "author": f"urn:li:organization:{LINKEDIN_ORG_ID}",
             "lifecycleState": "PUBLISHED",
             "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {
-                        "text": full_content
-                    },
-                    "shareMediaCategory": "NONE"
-                }
+                "com.linkedin.ugc.ShareContent": share_content
             },
             "visibility": {
             "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
@@ -306,7 +439,7 @@ if __name__ == "__main__":
         exit(1)
 
     print("Obteniendo la noticia más reciente no publicada del feed RSS...")
-    title, link, summary = fetch_latest_news(published_urls)
+    title, link, summary, image_url = fetch_latest_news(published_urls)
     
     if title and link:
         print(f"Noticia encontrada: {title}")
@@ -315,7 +448,11 @@ if __name__ == "__main__":
         
         if post_content:
             print("Publicando en la página de empresa de LinkedIn...")
-            linkedin_post_url = post_to_linkedin_page(post_content, link)
+            linkedin_post_url = post_to_linkedin_page(
+                post_content,
+                link,
+                image_url=image_url,
+            )
             if not linkedin_post_url:
                 exit(1)
 

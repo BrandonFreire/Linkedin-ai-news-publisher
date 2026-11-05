@@ -90,6 +90,12 @@ Para que el script se ejecute diariamente de manera automática:
    duplicados. GitHub puede eliminar cachés antiguas por sus políticas de
    retención; para una garantía permanente conviene migrar posteriormente este
    registro a una base de datos o almacenamiento externo.
+
+   Cuando el feed RSS incluye una imagen, el bot la utiliza. Si no la incluye,
+   busca `og:image` o `twitter:image` en la página de la noticia. La imagen se
+   registra y se sube a LinkedIn antes de crear la publicación. Si no existe,
+   no se puede descargar o LinkedIn rechaza la carga, el bot publica el texto
+   sin imagen y conserva el flujo normal.
 5. El bot se ejecutará automáticamente todos los días a las 09:00 UTC, tal como está definido en `.github/workflows/linkedin_bot.yml` (puedes modificar la expresión cron ahí si lo deseas).
 6. También puedes disparar la ejecución manualmente desde la pestaña **Actions** seleccionando el workflow "LinkedIn RSS Bot" y haciendo clic en "Run workflow".
 # Linkedin-ai-news-publisher
